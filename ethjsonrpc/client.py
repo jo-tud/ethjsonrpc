@@ -772,3 +772,51 @@ class ParityEthJsonRpc(EthJsonRpc):
         '''
         block = validate_block(block)
         return self._call('trace_block', [block])
+
+class BatchParityEthJsonRpc(ParityEthJsonRpc):
+    '''
+    EthJsonRpc subclass for Parity-specific methods in batches
+    '''
+
+    def __init__(self, host='localhost', port=PARITY_DEFAULT_RPC_PORT, tls=False):
+        ParityEthJsonRpc.__init__(self, host=host, port=port, tls=tls)
+        self.batch_mode = True
+        self._batch = []
+
+    def _call(self, method, params=None, _id=1):
+        if self.batch_mode:
+            self._batch.append([method, params])
+        else:
+            super(BatchParityEthJsonRpc, self)._call(method, params=None, _id=1)
+
+    def commit(self, _id=1):
+        data = []
+        for method, params in self._batch:
+            params = params or []
+            data.append({
+                'jsonrpc': '2.0',
+                'method':  method,
+                'params':  params,
+                'id':      _id,
+            })
+        self._batch = []  # clean up
+
+        scheme = 'http'
+        if self.tls:
+            scheme += 's'
+        url = '{}://{}:{}'.format(scheme, self.host, self.port)
+        headers = {'Content-Type': JSON_MEDIA_TYPE}
+        try:
+            r = self.session.post(url, headers=headers, data=json.dumps(data))
+        except RequestsConnectionError:
+            raise ConnectionError
+        if r.status_code / 100 != 2:
+            raise BadStatusCodeError(r.status_code)
+        try:
+            response = r.json()
+        except ValueError:
+            raise BadJsonError(r.text)
+        try:
+            return response['result']
+        except KeyError:
+            raise BadResponseError(response)
