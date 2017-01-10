@@ -789,15 +789,17 @@ class BatchParityEthJsonRpc(ParityEthJsonRpc):
         else:
             super(BatchParityEthJsonRpc, self)._call(method, params=None, _id=1)
 
-    def commit(self, _id=1):
+    def commit(self):
         data = []
+        if not self._batch:
+            return
         for method, params in self._batch:
             params = params or []
             data.append({
                 'jsonrpc': '2.0',
-                'method':  method,
-                'params':  params,
-                'id':      _id,
+                'method': method,
+                'params': params,
+                'id': method,
             })
         self._batch = []  # clean up
 
@@ -817,6 +819,12 @@ class BatchParityEthJsonRpc(ParityEthJsonRpc):
         except ValueError:
             raise BadJsonError(r.text)
         try:
-            return response['result']
+            r = {}
+            for item in response:
+                if item['id'] in r:
+                    r[item['id']].append(item['result'])
+                else:
+                    r[item['id']] = [item['result']]
+            return r
         except KeyError:
             raise BadResponseError(response)
